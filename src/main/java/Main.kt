@@ -64,9 +64,8 @@ fun getIds(url: String): List<String> {
     return emptyList()
 }
 
-suspend fun parsePage(pageID: String): Data? {
-    val searchPage =
-        "$parseUrl/SearchAction.seam?firstResult=17825&city=$city&founder=&chief=&house=&room=&okpo=&number=&baseBusiness=&fullnameRu=&street=&district=&tin=&logic=and&category=5&region=&cid=$pageID"
+fun parsePage(pageID: String): Data? {
+    val searchPage = "$parseUrl/SearchAction.seam?firstResult=17825&city=$city&founder=&chief=&house=&room=&okpo=&number=&baseBusiness=&fullnameRu=&street=&district=&tin=&logic=and&category=5&region=&cid=$pageID"
     val doc: Document = Jsoup.connect("searchPage").get()
     Logger.log("Loaded host: ${doc.title()}")
     // Some code for parsing
