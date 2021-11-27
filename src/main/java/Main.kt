@@ -1,5 +1,4 @@
-import kotlinx.coroutines.async
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVPrinter
 import org.jsoup.Jsoup
@@ -20,15 +19,19 @@ fun main(args: Array<String>) {
 
 fun parse(url: String) = runBlocking {
     val ids = getIds(url)
+    val coroutines = mutableListOf<Job>()
     val results = Collections.synchronizedList(listOf<Data>())
     ids.forEach { pageID ->
         Logger.log("Trying parse ID: $pageID")
-        async {
+        coroutines.add(launch {
             parsePage(pageID)?.let {
                 Logger.log("Data from page: $it")
                 results.add(it)
             }
-        }
+        })
+    }
+    coroutines.forEach {
+        it.join()
     }
 
     if (results.isNotEmpty()) {
@@ -53,9 +56,9 @@ fun getIds(url: String): List<String> {
     try {
         val doc: Document = Jsoup.connect(url).get()
         Logger.log("Loaded host: ${doc.title()}")
-    } catch (e: ConnectException){
-        Logger.log("Host ${parseUrl} is unavailable")
-    } catch (e: Exception){
+    } catch (e: ConnectException) {
+        Logger.log("Host $parseUrl is unavailable")
+    } catch (e: Exception) {
         e.printStackTrace()
     }
     return emptyList()
