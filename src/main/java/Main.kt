@@ -1,9 +1,11 @@
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVPrinter
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
-import java.lang.Exception
+import org.jsoup.nodes.Element
+import org.jsoup.select.Elements
 import java.net.ConnectException
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -14,26 +16,31 @@ fun main(args: Array<String>) {
     args.firstOrNull()?.let {
         city = it
     }
-    parse(parseUrl)
+    parse()
 }
 
-fun parse(url: String) = runBlocking {
-    val ids = getIds(url)
-    val coroutines = mutableListOf<Job>()
+fun parse() = runBlocking {
     val results = Collections.synchronizedList(listOf<Data>())
-    ids.forEach { pageID ->
-        Logger.log("Trying parse ID: $pageID")
-        coroutines.add(launch {
-            parsePage(pageID)?.let {
+    val parseDocumentJobs = mutableListOf<Job>()
+    getIds().onCompletion {
+        Logger.log("OnCompletion")
+        saveResults(results)
+    }.collect { documentID ->
+        Logger.log("Trying parse ID: $documentID")
+        parseDocumentJobs.add(launch {
+            parseDocument(documentID)?.let {
                 Logger.log("Data from page: $it")
                 results.add(it)
             }
         })
+        parseDocumentJobs.forEach {
+            it.join()
+        }
     }
-    coroutines.forEach {
-        it.join()
-    }
+    Logger.log("It's Done")
+}
 
+fun saveResults(results: List<Data>) {
     if (results.isNotEmpty()) {
         val currentDateTime = SimpleDateFormat("yyyyMMddHHmmss").format(Calendar.getInstance().time)
         val cvsfile = "${city}_Saves_$currentDateTime.csv"
@@ -49,25 +56,49 @@ fun parse(url: String) = runBlocking {
         csvPrinter.flush()
         csvPrinter.close()
     }
-    Logger.log("It's Done")
 }
 
-fun getIds(url: String): List<String> {
-    try {
-        val doc: Document = Jsoup.connect(url).get()
-        Logger.log("Loaded host: ${doc.title()}")
-    } catch (e: ConnectException) {
-        Logger.log("Host $parseUrl is unavailable")
-    } catch (e: Exception) {
-        e.printStackTrace()
+fun getIdsByPage(firstResult: Int): List<String> {
+    val ids = mutableListOf<String>()
+    val doc: Document = Jsoup.connect(getParsePageUrl(firstResult = firstResult)).get()
+    val form = doc.allElements.filter { it.tagName() == "form" && it.getElementById("searchActionForm") != null }.first() ?: return emptyList()
+    val table: Element = form.select("tbody").firstOrNull() ?: return emptyList()
+    val rows: Elements = table.select("tr")
+    rows.forEach { column ->
+        ids.add(column.select("td")[0].text())
     }
-    return emptyList()
+    return ids
 }
 
-fun parsePage(pageID: String): Data? {
-    val searchPage = "$parseUrl/SearchAction.seam?firstResult=17825&city=$city&founder=&chief=&house=&room=&okpo=&number=&baseBusiness=&fullnameRu=&street=&district=&tin=&logic=and&category=5&region=&cid=$pageID"
-    val doc: Document = Jsoup.connect("searchPage").get()
+suspend fun getIds() = flow {
+    coroutineScope {
+        try {
+            for (pages in 1..Int.MAX_VALUE step 25) {
+                val ids = getIdsByPage(pages)
+                if (ids.isEmpty()) break
+                emitAll(ids.asFlow())
+            }
+        } catch (e: ConnectException) {
+            e.printStackTrace()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+}
+
+
+fun parseDocument(documentID: String): Data? {
+    val searchPage = getParseDocumentUrl(documentID)
+    val doc: Document = Jsoup.connect(searchPage).get()
     Logger.log("Loaded host: ${doc.title()}")
     // Some code for parsing
     return null
+}
+
+fun getParsePageUrl(cityName: String = city, firstResult: Int): String {
+    return "https://register.minjust.gov.kg/register/SearchAction.seam?firstResult=$firstResult&city=$cityName&logic=and&cid=14340"
+}
+
+fun getParseDocumentUrl(documentID: String): String {
+    return "https://register.minjust.gov.kg/register/Public.seam?publicId=$documentID"
 }
